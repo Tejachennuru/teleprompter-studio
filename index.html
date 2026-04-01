@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Teleprompter Studio</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; min-height: 100vh; padding: 12px; }
+  #app { max-width: 1100px; margin: 0 auto; }
+  .panel { background: #242424; border: 0.5px solid #3a3a3a; border-radius: 12px; padding: 14px; margin-bottom: 10px; }
+  .panel-title { font-size: 11px; font-weight: 500; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+  .ctrl-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .ctrl-group { display: flex; align-items: center; gap: 6px; }
+  label { font-size: 12px; color: #aaa; white-space: nowrap; }
+  input[type=range] { width: 90px; accent-color: #FFD600; }
+  input[type=color] { width: 36px; height: 28px; border: 0.5px solid #555; border-radius: 6px; padding: 2px; cursor: pointer; background: transparent; }
+  .val { font-size: 12px; font-weight: 500; color: #e0e0e0; min-width: 28px; }
+  .btn { padding: 6px 14px; border: 0.5px solid #555; border-radius: 8px; background: transparent; color: #e0e0e0; font-size: 13px; font-weight: 500; cursor: pointer; transition: background 0.15s; white-space: nowrap; }
+  .btn:hover { background: #333; }
+  .btn.primary { background: #e0e0e0; color: #111; border-color: transparent; }
+  .btn.primary:hover { opacity: 0.85; }
+  textarea { width: 100%; height: 90px; border: 0.5px solid #3a3a3a; border-radius: 8px; padding: 10px; font-size: 14px; font-family: Arial, sans-serif; resize: vertical; background: #1e1e1e; color: #e0e0e0; }
+  textarea:focus { outline: none; border-color: #666; }
+  #stage-wrap { border-radius: 12px; overflow: hidden; border: 0.5px solid #3a3a3a; position: sticky; top: 8px; z-index: 30; background: #111; }
+  #stage { width: 100%; overflow: hidden; position: relative; display: flex; align-items: flex-start; padding-top: 8px; }
+  #track { white-space: nowrap; will-change: transform; display: flex; align-items: flex-start; }
+  #focus-zone { position: absolute; top: 6px; height: 74px; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 2; display: flex; align-items: stretch; }
+  .focus-fade-l { width: 80px; height: 100%; }
+  .focus-fade-r { width: 80px; height: 100%; }
+  .focus-center { width: 160px; height: 100%; }
+  #cursor-line { position: absolute; top: 10px; height: 62px; width: 2px; background: rgba(255,200,0,0.55); left: 50%; transform: translateX(-50%); z-index: 3; border-radius: 2px; pointer-events: none; }
+  .word-span { display: inline-block; padding: 0 0.15em; transition: color 0.1s, text-shadow 0.1s; }
+  .word-active { color: #FFD600 !important; text-shadow: 0 0 20px rgba(255,214,0,0.4); }
+  .word-done { opacity: 0.35; }
+  #status-bar { position: absolute; bottom: 6px; right: 10px; font-size: 11px; color: rgba(255,255,255,0.35); z-index: 4; }
+  #progress-bar { height: 3px; background: #333; }
+  #progress-fill { height: 100%; width: 0%; background: #FFD600; transition: width 0.3s; border-radius: 0 2px 2px 0; }
+  select { border: 0.5px solid #555; border-radius: 8px; padding: 5px 8px; font-size: 12px; background: #242424; color: #e0e0e0; cursor: pointer; }
+  .divider { width: 1px; height: 20px; background: #3a3a3a; }
+  #word-count { font-size: 11px; color: #888; margin-top: 4px; }
+  h1 { font-size: 18px; font-weight: 500; color: #e0e0e0; margin-bottom: 12px; }
+  .hint { font-size: 11px; color: #666; margin-top: 8px; }
+  .camera-tip { font-size: 11px; color: #8f8f8f; margin: 6px 2px 10px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>Teleprompter Studio</h1>
+
+  <div id="progress-bar"><div id="progress-fill"></div></div>
+  <div id="stage-wrap">
+    <div id="stage">
+      <div id="track"></div>
+      <div id="focus-zone">
+        <div class="focus-fade-l"></div>
+        <div class="focus-center"></div>
+        <div class="focus-fade-r"></div>
+      </div>
+      <div id="cursor-line"></div>
+      <div id="status-bar">READY</div>
+    </div>
+  </div>
+  <div class="camera-tip">Camera mode: keep the highlighted word on the center line at the top of your screen to maintain eye contact.</div>
+
+  <div class="panel">
+    <div class="panel-title">Script</div>
+    <textarea id="script-input" placeholder="Paste your tech content here...">Welcome to this deep dive into React hooks. Today we're exploring useState, useEffect, useCallback, and custom hooks — all the tools you need to write clean, powerful functional components. Let's start with the basics and build up to advanced patterns.</textarea>
+    <div id="word-count">0 words · 0 min read</div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">Controls</div>
+    <div class="ctrl-row" style="gap:12px; row-gap:10px;">
+      <div class="ctrl-group">
+        <button class="btn primary" id="play-btn">▶ Play</button>
+        <button class="btn" id="reset-btn">↺ Reset</button>
+      </div>
+      <div class="divider"></div>
+      <div class="ctrl-group">
+        <label>Speed</label>
+        <input type="range" id="speed" min="20" max="300" value="80" step="5">
+        <span class="val" id="speed-val">80</span>
+        <span style="font-size:11px;color:#888">px/s</span>
+      </div>
+      <div class="ctrl-group">
+        <label>Size</label>
+        <input type="range" id="font-size" min="20" max="120" value="52" step="2">
+        <span class="val" id="size-val">52</span>
+        <span style="font-size:11px;color:#888">px</span>
+      </div>
+      <div class="ctrl-group">
+        <label>Height</label>
+        <input type="range" id="stage-h" min="100" max="400" value="160" step="10">
+        <span class="val" id="h-val">160</span>
+        <span style="font-size:11px;color:#888">px</span>
+      </div>
+      <div class="divider"></div>
+      <div class="ctrl-group">
+        <label>BG</label>
+        <input type="color" id="bg-color" value="#0a0a0a">
+      </div>
+      <div class="ctrl-group">
+        <label>Text</label>
+        <input type="color" id="text-color" value="#ffffff">
+      </div>
+      <div class="ctrl-group">
+        <label>Highlight</label>
+        <input type="color" id="hl-color" value="#FFD600">
+      </div>
+      <div class="divider"></div>
+      <div class="ctrl-group">
+        <label>Font</label>
+        <select id="font-pick">
+          <option value="sans-serif">Sans</option>
+          <option value="Georgia, serif">Serif</option>
+          <option value="'Courier New', monospace">Mono</option>
+          <option value="Arial, sans-serif">Arial</option>
+          <option value="'Times New Roman', serif">Times</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <label>Weight</label>
+        <select id="weight-pick">
+          <option value="400">Regular</option>
+          <option value="500" selected>Medium</option>
+          <option value="700">Bold</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <label>Mirror</label>
+        <input type="checkbox" id="mirror-toggle" style="width:16px;height:16px;cursor:pointer;">
+      </div>
+    </div>
+    <div class="hint">Keyboard: Space = Play/Pause · R = Reset</div>
+  </div>
+
+</div>
+
+<script>
+  const scriptInput = document.getElementById('script-input');
+  const playBtn = document.getElementById('play-btn');
+  const resetBtn = document.getElementById('reset-btn');
+  const speedSlider = document.getElementById('speed');
+  const speedVal = document.getElementById('speed-val');
+  const fontSizeSlider = document.getElementById('font-size');
+  const sizeVal = document.getElementById('size-val');
+  const stageHSlider = document.getElementById('stage-h');
+  const hVal = document.getElementById('h-val');
+  const bgColor = document.getElementById('bg-color');
+  const textColor = document.getElementById('text-color');
+  const hlColor = document.getElementById('hl-color');
+  const fontPick = document.getElementById('font-pick');
+  const weightPick = document.getElementById('weight-pick');
+  const mirrorToggle = document.getElementById('mirror-toggle');
+  const stage = document.getElementById('stage');
+  const track = document.getElementById('track');
+  const statusBar = document.getElementById('status-bar');
+  const progressFill = document.getElementById('progress-fill');
+  const wordCount = document.getElementById('word-count');
+  const fadeLs = document.querySelectorAll('.focus-fade-l');
+  const fadeRs = document.querySelectorAll('.focus-fade-r');
+
+  let isPlaying = false;
+  let animFrame = null;
+  let offsetX = 0;
+  let totalWidth = 0;
+  let wordSpans = [];
+  let lastTime = null;
+  let currentSpeed = 80;
+  let currentFontSize = 52;
+  let stageHeight = 160;
+
+  function updateWordCount() {
+    const txt = scriptInput.value.trim();
+    const words = txt ? txt.split(/\s+/).length : 0;
+    const mins = Math.ceil(words / 130);
+    wordCount.textContent = words + ' words · ~' + mins + ' min read';
+  }
+
+  function buildTrack() {
+    const txt = scriptInput.value.trim();
+    if (!txt) return;
+    const words = txt.split(/\s+/);
+    track.innerHTML = '';
+    wordSpans = [];
+    const padding = document.createElement('span');
+    padding.style.display = 'inline-block';
+    padding.style.width = '60vw';
+    track.appendChild(padding);
+    words.forEach(function(w, i) {
+      const span = document.createElement('span');
+      span.className = 'word-span word-upcoming';
+      span.textContent = w + (i < words.length - 1 ? ' ' : '');
+      span.style.fontSize = currentFontSize + 'px';
+      span.style.fontFamily = fontPick.value;
+      span.style.fontWeight = weightPick.value;
+      span.style.color = textColor.value;
+      track.appendChild(span);
+      wordSpans.push(span);
+    });
+    const endPad = document.createElement('span');
+    endPad.style.display = 'inline-block';
+    endPad.style.width = '60vw';
+    track.appendChild(endPad);
+    setTimeout(function() { totalWidth = track.scrollWidth; }, 50);
+  }
+
+  function applyStyles() {
+    stage.style.background = bgColor.value;
+    stage.style.height = stageHeight + 'px';
+    const bg = bgColor.value;
+    fadeLs.forEach(function(f) { f.style.background = 'linear-gradient(to right, ' + bg + ', transparent)'; });
+    fadeRs.forEach(function(f) { f.style.background = 'linear-gradient(to left, ' + bg + ', transparent)'; });
+    wordSpans.forEach(function(s) {
+      if (!s.classList.contains('word-active')) s.style.color = textColor.value;
+      s.style.fontFamily = fontPick.value;
+      s.style.fontWeight = weightPick.value;
+      s.style.fontSize = currentFontSize + 'px';
+    });
+  }
+
+  function highlightCurrentWord() {
+    if (!wordSpans.length) return;
+    const stageRect = stage.getBoundingClientRect();
+    const cx = stageRect.left + stageRect.width / 2;
+    let closest = null;
+    let closestDist = Infinity;
+    wordSpans.forEach(function(s) {
+      const r = s.getBoundingClientRect();
+      const sc = r.left + r.width / 2;
+      const d = Math.abs(sc - cx);
+      if (d < closestDist) { closestDist = d; closest = s; }
+    });
+    wordSpans.forEach(function(s) {
+      const r = s.getBoundingClientRect();
+      const sc = r.left + r.width / 2;
+      if (s === closest) {
+        s.classList.add('word-active');
+        s.classList.remove('word-done', 'word-upcoming');
+        s.style.color = hlColor.value;
+      } else if (sc < cx - 40) {
+        s.classList.add('word-done');
+        s.classList.remove('word-active', 'word-upcoming');
+        s.style.color = textColor.value;
+      } else {
+        s.classList.add('word-upcoming');
+        s.classList.remove('word-active', 'word-done');
+        s.style.color = textColor.value;
+      }
+    });
+  }
+
+  function animate(ts) {
+    if (!lastTime) lastTime = ts;
+    const dt = (ts - lastTime) / 1000;
+    lastTime = ts;
+    offsetX += currentSpeed * dt;
+    track.style.transform = 'translateX(-' + offsetX + 'px)';
+    highlightCurrentWord();
+    const maxScroll = totalWidth - stage.offsetWidth;
+    if (maxScroll > 0) {
+      const pct = Math.min(100, (offsetX / maxScroll) * 100);
+      progressFill.style.width = pct.toFixed(1) + '%';
+    }
+    if (offsetX >= totalWidth - stage.offsetWidth * 0.5) {
+      pause();
+      statusBar.textContent = 'DONE';
+      progressFill.style.width = '100%';
+      return;
+    }
+    statusBar.textContent = 'LIVE';
+    animFrame = requestAnimationFrame(animate);
+  }
+
+  function play() {
+    if (!wordSpans.length) buildTrack();
+    setTimeout(function() {
+      totalWidth = track.scrollWidth;
+      isPlaying = true;
+      playBtn.textContent = '⏸ Pause';
+      playBtn.classList.add('primary');
+      lastTime = null;
+      statusBar.textContent = 'LIVE';
+      animFrame = requestAnimationFrame(animate);
+    }, 60);
+  }
+
+  function pause() {
+    isPlaying = false;
+    cancelAnimationFrame(animFrame);
+    playBtn.textContent = '▶ Play';
+    playBtn.classList.add('primary');
+    statusBar.textContent = 'PAUSED';
+  }
+
+  function reset() {
+    pause();
+    offsetX = 0;
+    track.style.transform = 'translateX(0)';
+    progressFill.style.width = '0%';
+    statusBar.textContent = 'READY';
+    buildTrack();
+    applyStyles();
+  }
+
+  playBtn.addEventListener('click', function() { if (isPlaying) pause(); else play(); });
+  resetBtn.addEventListener('click', reset);
+  speedSlider.addEventListener('input', function() { currentSpeed = +speedSlider.value; speedVal.textContent = currentSpeed; });
+  fontSizeSlider.addEventListener('input', function() {
+    currentFontSize = +fontSizeSlider.value;
+    sizeVal.textContent = currentFontSize;
+    wordSpans.forEach(function(s) { s.style.fontSize = currentFontSize + 'px'; });
+    setTimeout(function() { totalWidth = track.scrollWidth; }, 50);
+  });
+  stageHSlider.addEventListener('input', function() { stageHeight = +stageHSlider.value; hVal.textContent = stageHeight; stage.style.height = stageHeight + 'px'; });
+  bgColor.addEventListener('input', applyStyles);
+  textColor.addEventListener('input', applyStyles);
+  hlColor.addEventListener('input', function() { wordSpans.forEach(function(s) { if (s.classList.contains('word-active')) s.style.color = hlColor.value; }); });
+  fontPick.addEventListener('change', function() { wordSpans.forEach(function(s) { s.style.fontFamily = fontPick.value; }); });
+  weightPick.addEventListener('change', function() { wordSpans.forEach(function(s) { s.style.fontWeight = weightPick.value; }); });
+  mirrorToggle.addEventListener('change', function() { stage.style.transform = mirrorToggle.checked ? 'scaleX(-1)' : ''; });
+  document.addEventListener('keydown', function(e) {
+    if (e.code === 'Space' && e.target !== scriptInput) { e.preventDefault(); if (isPlaying) pause(); else play(); }
+    if (e.code === 'KeyR' && e.target !== scriptInput) reset();
+  });
+  scriptInput.addEventListener('input', function() { updateWordCount(); if (!isPlaying) { buildTrack(); applyStyles(); } });
+
+  buildTrack();
+  applyStyles();
+  updateWordCount();
+</script>
+</body>
+</html>
