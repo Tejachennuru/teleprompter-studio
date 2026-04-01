@@ -33,6 +33,20 @@
   .word-span { display: inline-block; padding: 0 0.15em; transition: color 0.1s, text-shadow 0.1s; }
   .word-active { color: #FFD600 !important; text-shadow: 0 0 20px rgba(255,214,0,0.4); }
   .word-done { opacity: 0.35; }
+  #countdown-overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 6;
+    font-size: 56px;
+    font-weight: 700;
+    color: #ffffff;
+    text-shadow: 0 0 24px rgba(0,0,0,0.6);
+    background: linear-gradient(to bottom, rgba(0,0,0,0.35), rgba(0,0,0,0.05));
+    pointer-events: none;
+  }
   #status-bar { position: absolute; bottom: 6px; right: 10px; font-size: 11px; color: rgba(255,255,255,0.35); z-index: 4; }
   #progress-bar { height: 3px; background: #333; }
   #progress-fill { height: 100%; width: 0%; background: #FFD600; transition: width 0.3s; border-radius: 0 2px 2px 0; }
@@ -58,6 +72,7 @@
         <div class="focus-fade-r"></div>
       </div>
       <div id="cursor-line"></div>
+      <div id="countdown-overlay">5</div>
       <div id="status-bar">READY</div>
     </div>
   </div>
@@ -155,6 +170,7 @@
   const mirrorToggle = document.getElementById('mirror-toggle');
   const stage = document.getElementById('stage');
   const track = document.getElementById('track');
+  const countdownOverlay = document.getElementById('countdown-overlay');
   const statusBar = document.getElementById('status-bar');
   const progressFill = document.getElementById('progress-fill');
   const wordCount = document.getElementById('word-count');
@@ -170,6 +186,8 @@
   let currentSpeed = 80;
   let currentFontSize = 52;
   let stageHeight = 160;
+  let countdownTimer = null;
+  let countdownValue = 5;
 
   function updateWordCount() {
     const txt = scriptInput.value.trim();
@@ -274,19 +292,41 @@
   }
 
   function play() {
+    if (isPlaying || countdownTimer) return;
     if (!wordSpans.length) buildTrack();
-    setTimeout(function() {
+    playBtn.textContent = '⏸ Pause';
+    playBtn.classList.add('primary');
+    countdownValue = 5;
+    countdownOverlay.textContent = countdownValue;
+    countdownOverlay.style.display = 'flex';
+    statusBar.textContent = 'STARTING IN ' + countdownValue;
+
+    countdownTimer = setInterval(function() {
+      countdownValue -= 1;
+      if (countdownValue > 0) {
+        countdownOverlay.textContent = countdownValue;
+        statusBar.textContent = 'STARTING IN ' + countdownValue;
+        return;
+      }
+
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+      countdownOverlay.style.display = 'none';
+
       totalWidth = track.scrollWidth;
       isPlaying = true;
-      playBtn.textContent = '⏸ Pause';
-      playBtn.classList.add('primary');
       lastTime = null;
       statusBar.textContent = 'LIVE';
       animFrame = requestAnimationFrame(animate);
-    }, 60);
+    }, 1000);
   }
 
   function pause() {
+    if (countdownTimer) {
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+      countdownOverlay.style.display = 'none';
+    }
     isPlaying = false;
     cancelAnimationFrame(animFrame);
     playBtn.textContent = '▶ Play';
