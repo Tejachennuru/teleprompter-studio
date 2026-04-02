@@ -23,7 +23,7 @@
   textarea { width: 100%; height: 90px; border: 0.5px solid #3a3a3a; border-radius: 8px; padding: 10px; font-size: 14px; font-family: Arial, sans-serif; resize: vertical; background: #1e1e1e; color: #e0e0e0; }
   textarea:focus { outline: none; border-color: #666; }
   #stage-wrap { border-radius: 12px; overflow: hidden; border: 0.5px solid #3a3a3a; position: sticky; top: 8px; z-index: 30; background: #111; }
-  #stage { width: 100%; overflow: hidden; position: relative; display: flex; align-items: flex-start; padding-top: 8px; }
+  #stage { width: 100%; overflow: hidden; position: relative; display: flex; align-items: flex-start; padding-top: 8px; touch-action: pan-y; }
   #track { white-space: nowrap; will-change: transform; display: flex; align-items: flex-start; }
   #focus-zone { position: absolute; top: 6px; height: 74px; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 2; display: flex; align-items: stretch; }
   .focus-fade-l { width: 80px; height: 100%; }
@@ -188,6 +188,9 @@
   let stageHeight = 160;
   let countdownTimer = null;
   let countdownValue = 5;
+  let isTouchScrubbing = false;
+  let touchStartX = 0;
+  let touchStartOffset = 0;
 
   function updateWordCount() {
     const txt = scriptInput.value.trim();
@@ -269,18 +272,28 @@
     });
   }
 
+  function getMaxOffset() {
+    return Math.max(0, totalWidth - stage.offsetWidth);
+  }
+
+  function setOffset(nextOffset) {
+    offsetX = Math.max(0, Math.min(nextOffset, getMaxOffset()));
+    track.style.transform = 'translateX(-' + offsetX + 'px)';
+    highlightCurrentWord();
+    const maxScroll = getMaxOffset();
+    if (maxScroll > 0) {
+      const pct = Math.min(100, (offsetX / maxScroll) * 100);
+      progressFill.style.width = pct.toFixed(1) + '%';
+    } else {
+      progressFill.style.width = '0%';
+    }
+  }
+
   function animate(ts) {
     if (!lastTime) lastTime = ts;
     const dt = (ts - lastTime) / 1000;
     lastTime = ts;
-    offsetX += currentSpeed * dt;
-    track.style.transform = 'translateX(-' + offsetX + 'px)';
-    highlightCurrentWord();
-    const maxScroll = totalWidth - stage.offsetWidth;
-    if (maxScroll > 0) {
-      const pct = Math.min(100, (offsetX / maxScroll) * 100);
-      progressFill.style.width = pct.toFixed(1) + '%';
-    }
+    setOffset(offsetX + currentSpeed * dt);
     if (offsetX >= totalWidth - stage.offsetWidth * 0.5) {
       pause();
       statusBar.textContent = 'DONE';
@@ -336,13 +349,37 @@
 
   function reset() {
     pause();
-    offsetX = 0;
-    track.style.transform = 'translateX(0)';
-    progressFill.style.width = '0%';
+    setOffset(0);
     statusBar.textContent = 'READY';
     buildTrack();
     applyStyles();
   }
+
+  stage.addEventListener('touchstart', function(e) {
+    if (!e.touches.length) return;
+    if (isPlaying || countdownTimer) pause();
+    totalWidth = track.scrollWidth;
+    isTouchScrubbing = true;
+    touchStartX = e.touches[0].clientX;
+    touchStartOffset = offsetX;
+    statusBar.textContent = 'SCRUB';
+  }, { passive: true });
+
+  stage.addEventListener('touchmove', function(e) {
+    if (!isTouchScrubbing || !e.touches.length) return;
+    e.preventDefault();
+    const dx = e.touches[0].clientX - touchStartX;
+    setOffset(touchStartOffset + dx);
+  }, { passive: false });
+
+  function endTouchScrub() {
+    if (!isTouchScrubbing) return;
+    isTouchScrubbing = false;
+    statusBar.textContent = 'PAUSED';
+  }
+
+  stage.addEventListener('touchend', endTouchScrub, { passive: true });
+  stage.addEventListener('touchcancel', endTouchScrub, { passive: true });
 
   playBtn.addEventListener('click', function() { if (isPlaying) pause(); else play(); });
   resetBtn.addEventListener('click', reset);
